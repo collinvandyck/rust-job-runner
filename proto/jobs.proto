@@ -1,0 +1,117 @@
+syntax = "proto3";
+package jobs;
+
+import public "google/protobuf/timestamp.proto";
+
+service Store {
+  // spawns a new job
+  rpc Spawn (SpawnRequest) returns (SpawnResponse);
+
+  // fetches the logs for a particular job
+  rpc Logs (LogsRequest) returns (stream LogFrame);
+
+  // queries job state for one of the user's jobs.
+  rpc Ps (PsRequest) returns (PsResponse);
+
+  // terminates a specific job. only the owner of the job is allowed to kill it.
+  rpc Kill (KillRequest) returns (KillResponse);
+}
+
+message SpawnRequest {
+  string name = 1;
+  repeated string args = 2;
+}
+
+message SpawnResponse {
+  Job job = 1;
+}
+
+message LogsRequest {
+  string job_id = 1;
+}
+
+enum LogFrameKind {
+  STDOUT = 0;
+  STDERR = 1;
+}
+
+message LogFrame {
+  LogFrameKind kind = 1;
+  bytes bs = 2;
+}
+
+message PsRequest {
+  string job_id = 1;
+}
+
+message PsResponse {
+  Job job = 1;
+}
+
+message KillRequest {
+  string job_id = 1;
+}
+
+message KillResponse {
+  Job job = 1;
+}
+
+message Job {
+  // the job identifier. guaranteed to be unique.
+  string id = 1;
+
+  // the user that created the job.
+  User owner = 2;
+
+  // when the job was successfully started. if the job could not be started, the Spawn api will
+  // return an error
+  google.protobuf.Timestamp started_at = 3;
+
+  // when the job ended, regardless of whether it was killed, terminated, crashed.
+  google.protobuf.Timestamp ended_at = 4;
+
+  // if a user kills a job, the server will record the time of the request as
+  // well as the user. if the job is not running when the server attempts to
+  // kill the job, this will be None. if the kill is successful it is not
+  // guaranteed that killed_at will be the exact same as ended_at.
+  Killed killed = 5;
+
+  // the current state of the job.
+  oneof state {
+    JobRunningState running = 6;
+    JobExitedState exited = 7;
+    JobCrashedState crashed = 8;
+  }
+}
+
+// The id of a user is the common name of the certificate it presents
+message User {
+  string id = 1;
+}
+
+// Details about a kill request. Even though only the job owner can kill it, if
+// we add the concept of an admin role the user field will indicate the user
+// that killed it if not the owner.
+message Killed {
+  google.protobuf.Timestamp killed_at = 1;
+  User user = 2;
+}
+
+// the job was started and is currently running
+message JobRunningState {
+  uint32 pid = 1;
+}
+
+// the job exited normally
+message JobExitedState {
+  int32 exit_code = 1;
+}
+
+// the job crashed without exiting. on unix, it's possible to determine the
+// reason for crashing by querying for the signal that the process received.
+// it is unknown right now what this will look like for windows, so this might
+// change as the implementation proceeds.
+message JobCrashedState {
+  int32 signal = 1;
+  string msg = 2;
+}
